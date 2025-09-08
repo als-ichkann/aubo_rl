@@ -3,8 +3,6 @@ import os
 import numpy as np
 import mujoco
 import mujoco.viewer
-import mujoco.glfw
-import glfw  
 import cv2
 import threading
 from ultralytics import YOLO
@@ -17,62 +15,41 @@ global detected_xywh
 
 target_xywh = [320, 240, 280, 280]
 detected = False
-def init_camera():
-    """初始化GLFW和MuJoCo渲染上下文"""
-    if not glfw.init():
-        raise Exception("GLFW initialization failed")
-    glfw.window_hint(glfw.VISIBLE, 0)
-    window = glfw.create_window(640, 480, "MuJoCo Camera", None, None)
-    
-    if not window:
-        glfw.terminate()
-        raise Exception("GLFW window creation failed")
-    
-    glfw.make_context_current(window)
-    return window
+# init_camera函数已移除，新渲染器API不需要GLFW窗口
 
 def setup_camera(model, data, camera_name, width=640, height=480):
-    """设置摄像头参数"""
+    """设置摄像头参数 - 使用新的渲染器API"""
     # 获取摄像头ID
     camera_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_CAMERA, camera_name)
     
-    # 设置摄像头参数
-    viewport = mujoco.MjrRect(0, 0, width, height)
+    # 增强光照设置 - 修复相机全黑问题
+    model.vis.headlight.ambient[:] = [0.8, 0.8, 0.8]  # 大幅增加环境光
+    model.vis.headlight.diffuse[:] = [1.0, 1.0, 1.0]  # 最大漫反射光
+    model.vis.headlight.specular[:] = [0.5, 0.5, 0.5]  # 增加镜面反射
     
-    # 创建场景和上下文
-    scn = mujoco.MjvScene(model, maxgeom=10000)
-    cam = mujoco.MjvCamera()
-    cam.type = mujoco.mjtCamera.mjCAMERA_FIXED
-    cam.fixedcamid = camera_id
+    # 使用新的渲染器API，避免OpenGL上下文问题
+    renderer = mujoco.Renderer(model, height=height, width=width)
+    
+    return camera_id, renderer, camera_name
 
-    con = mujoco.MjrContext(model, mujoco.mjtFontScale.mjFONTSCALE_150)
-    
-    return camera_id, viewport, scn, cam, con
-
-def get_camera_image(model, data, camera_id, viewport, scn, cam, con):
-    """获取摄像头图像"""
-    # 更新摄像头
-    opt = mujoco.MjvOption()
-    mujoco.mjv_defaultOption(opt)
-
-    mujoco.mjv_updateScene(model, data, opt, None, cam, mujoco.mjtCatBit.mjCAT_ALL, scn)
-    
-    # 渲染场景
-    rgb = np.zeros((viewport.height, viewport.width, 3), dtype=np.uint8)
-    depth = np.zeros((viewport.height, viewport.width), dtype=np.float32)
-    
-    mujoco.mjr_render(viewport, scn, con)
-    mujoco.mjr_readPixels(rgb, depth, viewport, con)
+def get_camera_image(model, data, camera_id, renderer, camera_name):
+    """获取摄像头图像 - 使用新的渲染器API"""
+    # 使用新渲染器渲染
+    renderer.update_scene(data, camera=camera_name)
+    rgb_image = renderer.render()
     
     # OpenCV使用BGR格式，需要转换
-    bgr = cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR)
+    bgr = cv2.cvtColor(rgb_image, cv2.COLOR_RGB2BGR)
+    
+    # 创建虚拟深度图（新渲染器API不直接提供深度）
+    depth = np.ones((rgb_image.shape[0], rgb_image.shape[1]), dtype=np.float32) * 0.5
     
     return bgr, depth
 
 def camera_rendering_thread(model, data):
-    """独立线程处理摄像头渲染"""
-    window = init_camera()
-    camera_id, viewport, scn, cam, con = setup_camera(model, data, "ego_camera")
+    """独立线程处理摄像头渲染 - 使用新的渲染器API"""
+    # 不再需要GLFW窗口，新渲染器API不需要OpenGL上下文
+    camera_id, renderer, camera_name = setup_camera(model, data, "ego_camera")
 
     mjr_znear = 0.05
     mjr_zfar = 8
@@ -81,7 +58,7 @@ def camera_rendering_thread(model, data):
     global detected
 
     while True:
-        rgb_image, depth_map = get_camera_image(model, data, camera_id, viewport, scn, cam, con)
+        rgb_image, depth_map = get_camera_image(model, data, camera_id, renderer, camera_name)
         results = yolo_model.predict(rgb_image, verbose=False)
         # Draw bounding boxes and class labels on the frame
         frame = results[0].plot()
