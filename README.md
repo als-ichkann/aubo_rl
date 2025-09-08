@@ -121,31 +121,10 @@ which python      # 应该显示conda环境中的Python路径
 - **主要功能**:
   - 仿真/真实模式无缝切换
   - PBVS和IBVS控制算法
-  - PyBullet仿真环境集成
   - 与现有代码完全兼容
 - **运行方式**: `python robot_visual_servoing_simulation.py`
 
-#### 4. `pybullet_robot_adapter.py`
-**主要功能**: PyBullet机械臂仿真适配器
-- **作用**: 模拟真实Auboi5机械臂的接口，提供仿真环境
-- **核心类**: `PyBulletAuboi5Robot` - 仿真机械臂控制器
-- **主要功能**:
-  - Auboi5六轴机械臂仿真模型
-  - 底座固定到地面
-  - 末端RGB-D相机仿真
-  - 完全兼容robotcontrol.py接口
-- **运行方式**: 作为库被其他模块导入
-
-#### 5. `auboi5_demo.py`
-**主要功能**: Auboi5机械臂运动演示
-- **作用**: 展示机械臂的运动能力和工作空间
-- **主要功能**:
-  - 关节运动演示
-  - 工作空间分析
-  - 相机视图展示
-- **运行方式**: `python auboi5_demo.py`
-
-#### 7. `camera_calibration.py`
+#### 3. `camera_calibration.py`
 **主要功能**: 相机标定工具
 - **作用**: 标定RealSense相机的内参矩阵和畸变系数
 - **核心类**: `CameraCalibration` - 相机标定工具
@@ -163,7 +142,7 @@ which python      # 应该显示conda环境中的Python路径
 
 ### 目标检测模块
 
-#### 8. `yolo_detect.py`
+#### 4. `yolo_detect.py`
 **主要功能**: YOLO目标检测演示
 - **作用**: 使用训练好的YOLO模型进行实时目标检测
 - **主要功能**:
@@ -175,7 +154,7 @@ which python      # 应该显示conda环境中的Python路径
 - **运行方式**: `python yolo_detect.py`
 - **使用场景**: 测试YOLO模型性能，验证检测效果
 
-#### 9. `yolo_train.py`
+#### 5. `yolo_train.py`
 **主要功能**: YOLO模型训练脚本
 - **作用**: 训练自定义的YOLO目标检测模型
 - **主要功能**:
@@ -189,7 +168,7 @@ which python      # 应该显示conda环境中的Python路径
 
 ### 测试和验证模块
 
-#### 10. `test_system.py`
+#### 6. `test_system.py`
 **主要功能**: 系统功能测试
 - **作用**: 快速测试系统各个组件的工作状态
 - **主要功能**:
@@ -203,20 +182,9 @@ which python      # 应该显示conda环境中的Python路径
   - YOLO模型加载和推理
   - 依赖库完整性检查
 
-#### 11. `test_simulation.py`
-**主要功能**: PyBullet仿真系统测试
-- **作用**: 快速测试PyBullet仿真环境和机械臂功能
-- **主要功能**:
-  - 检查PyBullet依赖库
-  - 测试Auboi5机械臂模型
-  - 测试仿真相机功能
-  - 验证YOLO模型集成
-- **运行方式**: `python test_simulation.py`
-- **使用场景**: 验证仿真环境是否正常工作
-
 ### 配置和权重文件
 
-#### 12. `requirements.txt`
+#### 7. `requirements.txt`
 **主要功能**: Python依赖包列表
 - **作用**: 定义项目所需的所有Python包及版本
 - **包含的主要包**:
@@ -225,10 +193,9 @@ which python      # 应该显示conda环境中的Python路径
   - ultralytics - YOLO目标检测
   - torch, torchvision - 深度学习框架
   - matplotlib, Pillow - 图像处理和可视化
-  - pybullet - 物理仿真引擎
 - **使用方式**: `pip install -r requirements.txt`
 
-#### 13. `setup_environment.sh`
+#### 8. `setup_environment.sh`
 **主要功能**: 环境设置脚本
 - **作用**: 自动激活conda环境并进行环境检查
 - **主要功能**:
@@ -237,12 +204,12 @@ which python      # 应该显示conda环境中的Python路径
   - 验证关键依赖包
 - **运行方式**: `./setup_environment.sh`
 
-#### 14. `yolov5nu.pt`
+#### 9. `yolov5nu.pt`
 **主要功能**: 预训练YOLO模型
 - **作用**: YOLOv5的预训练权重文件
 - **使用场景**: 作为训练的起始点或直接用于检测
 
-#### 15. `yolo_train/` 目录
+#### 10. `yolo_train/` 目录
 **主要功能**: YOLO训练输出目录
 - **作用**: 存储YOLO模型训练的所有结果
 - **主要文件**:
@@ -310,19 +277,10 @@ python camera_calibration.py
 python robot_visual_servoing_integrated.py
 ```
 
-**仿真模式（推荐先测试）**:
-```bash
-# 运行仿真系统
-python robot_visual_servoing_simulation.py
-
-# 或使用启动脚本
-./run_simulation.sh
-```
 
 ### 5. 选择模式
 - **模式1**: PBVS - 适用于精确位置控制
 - **模式2**: IBVS - 适用于图像空间控制
-- **仿真模式**: 支持所有功能，无需真实硬件
 
 ### 6. 操作控制
 - **'q'**: 退出程序
@@ -798,94 +756,6 @@ class ROSVisualServoing(RobotVisualServoing):
 
 ---
 
-## PyBullet仿真环境
-
-### 仿真系统特性
-
-本项目现已集成基于PyBullet的Auboi5六轴机械臂仿真环境：
-
-- ✅ **环境隔离**: 完全在conda vision环境中运行，避免与ROS2冲突
-- ✅ **物理仿真**: 基于PyBullet的真实物理仿真
-- ✅ **Auboi5模型**: 精确的六轴机械臂模型，底座固定到地面
-- ✅ **末端相机**: 集成RGB-D相机传感器
-- ✅ **无缝切换**: 支持仿真和真实机械臂模式切换
-- ✅ **完全兼容**: 与现有视觉伺服代码完全兼容
-
-### 仿真架构
-
-```
-robot_visual_servoing_simulation.py (集成视觉伺服系统)
-├── RobotVisualServoing (视觉伺服主类)
-│   ├── 仿真/真实模式切换
-│   ├── PBVS和IBVS算法
-│   └── 与现有代码完全兼容
-│
-├── pybullet_robot_adapter.py (PyBullet适配器)
-│   ├── PyBulletAuboi5Robot (仿真机械臂类)
-│   │   ├── Auboi5六轴机械臂模型
-│   │   ├── 底座固定到地面
-│   │   ├── 末端RGB-D相机
-│   │   ├── 真实机械臂接口模拟
-│   │   └── 物理仿真引擎
-│   │
-│   └── 完全兼容robotcontrol.py接口
-```
-
-### 仿真快速开始
-
-**1. 启动仿真系统**
-```bash
-# 使用启动脚本（推荐）
-./run_simulation.sh
-
-# 或直接运行
-python robot_visual_servoing_simulation.py
-```
-
-**2. 选择模式**
-- S: PyBullet仿真模式
-- R: 真实机械臂模式
-
-**3. 选择控制方法**
-- 1: PBVS（基于位置的视觉伺服）
-- 2: IBVS（基于图像的视觉伺服）
-
-**4. 机械臂演示**
-```bash
-# Auboi5机械臂运动演示
-python auboi5_demo.py
-
-# 系统测试
-python test_simulation.py
-```
-
-### Auboi5机械臂规格
-
-```
-- 基座高度: 0.165m
-- 肩部高度: 0.158m  
-- 大臂长度: 0.425m
-- 小臂长度: 0.392m
-- 手腕长度: 0.109m
-- 法兰长度: 0.082m
-- 总工作高度: ~1.3m
-- 工作半径: ~0.85m
-- 关节限制: 基于实际Auboi5限制
-```
-
-### 仿真与实际系统对比
-
-| 特性 | 仿真系统 | 实际系统 |
-|------|----------|----------|
-| 机械臂控制 | PyBullet物理仿真 | Auboi5实际机械臂 |
-| 相机输入 | 仿真RGB-D相机 | RealSense D435i |
-| 目标检测 | 相同YOLO模型 | 相同YOLO模型 |
-| 视觉伺服算法 | 相同算法实现 | 相同算法实现 |
-| 安全机制 | 仿真碰撞检测 | 实际安全监控 |
-| 接口兼容性 | 100%兼容 | 原生支持 |
-
----
-
-**安全提醒**: 使用本系统前请确保充分了解机器人安全操作规程，并在安全的环境中进行测试。建议先在仿真环境中验证算法，再部署到实际机器人系统。
+**安全提醒**: 使用本系统前请确保充分了解机器人安全操作规程，并在安全的环境中进行测试。
 
 **环境提醒**: 每次运行项目前，请确保已激活conda环境 `vision`。
