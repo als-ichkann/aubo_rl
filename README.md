@@ -26,19 +26,25 @@
 - **Python**: 3.8.x（通过conda管理）
 - **网络**: 与Auboi5机械臂的网络连接
 
+### MuJoCo仿真环境（可选）
+- **MuJoCo**: 2.3.0或更高版本
+- **GLFW**: 3.3或更高版本（图形库）
+- **OpenGL**: 支持OpenGL 3.3的显卡驱动
+
 ## 📖 目录
 
 1. [🚀 项目特色](#-项目特色)
 2. [📋 系统要求](#-系统要求)
 3. [⚡ 快速开始](#-快速开始)
-4. [🔧 详细安装指南](#-详细安装指南)
-5. [🎯 使用说明](#-使用说明)
-6. [📁 代码文件说明](#-代码文件说明)
-7. [🧠 视觉伺服方法](#-视觉伺服方法)
-8. [⚙️ 参数配置](#️-参数配置)
-9. [🛠️ 故障排除](#️-故障排除)
-10. [📚 API参考](#-api参考)
-11. [🔬 扩展开发](#-扩展开发)
+4. [🎮 MuJoCo仿真系统](#-mujoco仿真系统)
+5. [🔧 详细安装指南](#-详细安装指南)
+6. [🎯 使用说明](#-使用说明)
+7. [📁 代码文件说明](#-代码文件说明)
+8. [🧠 视觉伺服方法](#-视觉伺服方法)
+9. [⚙️ 参数配置](#️-参数配置)
+10. [🛠️ 故障排除](#️-故障排除)
+11. [📚 API参考](#-api参考)
+12. [🔬 扩展开发](#-扩展开发)
 
 ## ⚡ 快速开始
 
@@ -59,14 +65,112 @@ cd vision
 # 4. 运行系统测试
 python test_system.py --all
 
-# 5. 启动视觉伺服系统
+# 5a. 启动真实机械臂视觉伺服系统
 python robot_visual_servoing_integrated.py
+
+# 5b. 或者启动MuJoCo仿真系统（推荐先测试）
+python assembly_thread.py
 ```
 
 ### 🎮 操作控制
 - **'q'**: 退出程序
 - **'e'**: 紧急停止机械臂
 - **'r'**: (IBVS模式) 重新设置期望特征
+
+## 🎮 MuJoCo仿真系统
+
+### 系统特色
+
+本项目集成了基于MuJoCo物理引擎的高精度机械臂仿真系统：
+
+- **🔬 物理仿真**: 基于MuJoCo的真实物理仿真环境
+- **🎯 视觉伺服**: 实现基于图像的视觉伺服控制（IBVS）
+- **🧠 多线程架构**: 相机渲染和控制算法并行处理
+- **📷 虚拟相机**: 集成末端执行器RGB-D相机仿真
+- **🤖 Auboi5模型**: 精确的六轴机械臂物理模型
+
+### 仿真系统架构
+
+```
+assembly_thread.py (MuJoCo仿真主程序)
+├── main() - 主函数，启动仿真环境
+├── camera_rendering_thread() - 相机渲染线程
+│   ├── YOLO目标检测
+│   ├── 深度图像处理
+│   └── 实时图像显示
+└── visual_servo_thread() - 视觉伺服控制线程
+    ├── 雅可比矩阵计算
+    ├── IBVS控制律
+    └── 机械臂运动控制
+
+scene.xml - 仿真场景配置
+├── assembly.xml - 机械臂模型定义
+├── 环境光照设置
+└── 物理参数配置
+```
+
+### 快速启动MuJoCo仿真
+
+```bash
+# 1. 安装MuJoCo依赖
+pip install mujoco mujoco-python-viewer
+
+# 2. 安装GLFW（图形库）
+sudo apt-get install libglfw3-dev
+
+# 3. 启动仿真系统
+python assembly_thread.py
+```
+
+### 仿真操作指南
+
+#### 启动仿真
+```bash
+# 激活环境
+conda activate vision
+
+# 运行MuJoCo仿真
+python assembly_thread.py
+```
+
+#### 仿真界面说明
+- **MuJoCo Viewer**: 3D仿真环境窗口
+- **MuJoCo Camera**: 机械臂末端相机视图
+- **目标检测**: 绿色标记显示检测到的目标
+- **期望位置**: 紫色标记显示期望的目标位置
+
+#### 控制参数调整
+```python
+# 在assembly_thread.py中可调整的参数：
+
+# 目标期望位置和尺寸 (像素坐标)
+target_xywh = [320, 240, 280, 280]  # [x, y, width, height]
+
+# 控制增益
+ctrl = -0.6 * damped_pseudo_inverse(J_q) @ damped_pseudo_inverse(L_e) @ e
+
+# 相机参数
+f = 400  # 焦距（像素）
+```
+
+### 仿真vs真实系统对比
+
+| 特性 | MuJoCo仿真 | 真实系统 |
+|------|------------|----------|
+| **机械臂模型** | Auboi5六轴仿真模型 | 真实Auboi5机械臂 |
+| **相机系统** | 虚拟RGB-D相机 | RealSense D435i |
+| **物理引擎** | MuJoCo物理仿真 | 真实物理环境 |
+| **控制方法** | IBVS视觉伺服 | PBVS/IBVS双模式 |
+| **目标检测** | 相同YOLO模型 | 相同YOLO模型 |
+| **开发调试** | 快速迭代测试 | 需要硬件连接 |
+
+### MuJoCo仿真优势
+
+1. **🚀 快速原型开发**: 无需真实硬件即可测试算法
+2. **🔒 安全测试**: 避免机械臂碰撞损坏风险
+3. **🎯 精确控制**: 可重复的测试环境
+4. **📊 数据采集**: 便于收集训练数据
+5. **🔧 参数调优**: 快速测试不同控制参数
 
 ## 🔧 详细安装指南
 
@@ -101,6 +205,10 @@ conda activate vision
 
 # 安装依赖包
 pip install -r requirements.txt
+
+# 安装MuJoCo仿真依赖（可选，用于assembly_thread.py）
+pip install mujoco mujoco-python-viewer
+sudo apt-get install libglfw3-dev  # GLFW图形库
 ```
 
 ### 步骤4: 硬件连接
@@ -294,19 +402,46 @@ which python      # 应该显示conda环境中的Python路径
 - **依赖库**: `libpyauboi5` - Auboi5机器人SDK
 - **使用场景**: 被其他模块调用，不直接运行
 
-### 仿真系统模块
+### MuJoCo仿真模块
 
-#### 3. `robot_visual_servoing_simulation.py`
-**主要功能**: 集成视觉伺服仿真系统
-- **作用**: 支持仿真和真实机械臂模式切换的视觉伺服系统
-- **核心类**: `RobotVisualServoing` - 统一的视觉伺服控制系统
-- **主要功能**:
-  - 仿真/真实模式无缝切换
-  - PBVS和IBVS控制算法
-  - 与现有代码完全兼容
-- **运行方式**: `python robot_visual_servoing_simulation.py`
+#### 3. `assembly_thread.py`
+**主要功能**: MuJoCo多线程仿真系统
+- **作用**: 基于MuJoCo物理引擎的机械臂视觉伺服仿真
+- **核心功能**:
+  - 多线程架构：相机渲染和控制算法并行处理
+  - IBVS视觉伺服控制实现
+  - 实时YOLO目标检测
+  - 虚拟RGB-D相机仿真
+  - 雅可比矩阵计算和阻尼伪逆控制
+- **运行方式**: `python assembly_thread.py`
+- **适用场景**: 算法验证、参数调优、安全测试
 
-#### 3. `camera_calibration.py`
+#### 4. `scene.xml`
+**主要功能**: MuJoCo仿真场景配置文件
+- **作用**: 定义仿真环境的整体场景
+- **包含内容**:
+  - 引用assembly.xml机械臂模型
+  - 环境光照和渲染设置
+  - 相机视角和统计信息配置
+  - 地面和天空盒材质定义
+- **使用方式**: 被assembly_thread.py自动加载
+
+#### 5. `assembly.xml`
+**主要功能**: Auboi5机械臂MuJoCo模型定义
+- **作用**: 详细定义机械臂的物理模型和控制参数
+- **包含内容**:
+  - 六轴关节和连杆的几何模型
+  - 物理属性：质量、惯性、摩擦等
+  - 碰撞检测模型
+  - 执行器配置（速度控制）
+  - 末端相机定义
+  - 番茄目标物体模型
+- **资源文件**: 引用assets/目录下的3D模型文件
+- **使用方式**: 被scene.xml引用
+
+### 工具和测试模块
+
+#### 6. `camera_calibration.py`
 **主要功能**: 相机标定工具
 - **作用**: 标定RealSense相机的内参矩阵和畸变系数
 - **核心类**: `CameraCalibration` - 相机标定工具
