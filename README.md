@@ -1,21 +1,203 @@
 # 机器人视觉伺服系统
 
-基于robotcontrol.py的PBVS和IBVS视觉伺服系统，整合了YOLO目标检测和RealSense深度相机。
+基于Auboi5机械臂的智能视觉伺服控制系统，整合了YOLO目标检测和RealSense深度相机，实现精确的机器人视觉控制。
 
-## 目录
+## 🚀 项目特色
 
-1. [系统概述](#系统概述)
-2. [环境设置](#环境设置)
-3. [代码文件说明](#代码文件说明)
-4. [功能特性](#功能特性)
-5. [快速开始](#快速开始)
-6. [视觉伺服方法](#视觉伺服方法)
-7. [系统架构](#系统架构)
-8. [参数配置](#参数配置)
-9. [使用指南](#使用指南)
-10. [故障排除](#故障排除)
-11. [API参考](#api参考)
-12. [扩展开发](#扩展开发)
+- **双模式视觉伺服**: 支持PBVS（基于位置）和IBVS（基于图像）两种控制方法
+- **智能目标检测**: 集成YOLO深度学习模型，实现实时目标识别
+- **深度感知**: 使用RealSense D435i相机获取精确的3D空间信息
+- **安全可靠**: 内置多重安全机制，包括紧急停止和碰撞检测
+- **易于使用**: 提供完整的环境配置和一键启动脚本
+
+## 📋 系统要求
+
+### 硬件要求
+- **机械臂**: Auboi5六轴机械臂
+- **相机**: Intel RealSense D435i深度相机
+- **计算机**: 
+  - CPU: Intel i5或更高
+  - 内存: 8GB RAM（推荐16GB）
+  - GPU: NVIDIA GPU（用于YOLO推理，可选）
+  - 存储: 至少5GB可用空间
+
+### 软件环境
+- **操作系统**: Ubuntu 18.04/20.04/22.04
+- **Python**: 3.8.x（通过conda管理）
+- **网络**: 与Auboi5机械臂的网络连接
+
+## 📖 目录
+
+1. [🚀 项目特色](#-项目特色)
+2. [📋 系统要求](#-系统要求)
+3. [⚡ 快速开始](#-快速开始)
+4. [🔧 详细安装指南](#-详细安装指南)
+5. [🎯 使用说明](#-使用说明)
+6. [📁 代码文件说明](#-代码文件说明)
+7. [🧠 视觉伺服方法](#-视觉伺服方法)
+8. [⚙️ 参数配置](#️-参数配置)
+9. [🛠️ 故障排除](#️-故障排除)
+10. [📚 API参考](#-api参考)
+11. [🔬 扩展开发](#-扩展开发)
+
+## ⚡ 快速开始
+
+### 第一次使用？请按以下步骤操作：
+
+```bash
+# 1. 克隆项目
+git clone https://github.com/als-ichkann/vision.git
+cd vision
+
+# 2. 设置环境（一键配置）
+./setup_environment.sh
+
+# 3. 连接硬件设备
+# - 确保Auboi5机械臂已连接并启动
+# - 连接RealSense D435i相机到USB 3.0接口
+
+# 4. 运行系统测试
+python test_system.py --all
+
+# 5. 启动视觉伺服系统
+python robot_visual_servoing_integrated.py
+```
+
+### 🎮 操作控制
+- **'q'**: 退出程序
+- **'e'**: 紧急停止机械臂
+- **'r'**: (IBVS模式) 重新设置期望特征
+
+## 🔧 详细安装指南
+
+### 步骤1: 环境准备
+
+```bash
+# 检查系统版本
+lsb_release -a
+
+# 安装基础依赖
+sudo apt update
+sudo apt install git curl wget build-essential
+```
+
+### 步骤2: 安装Miniconda
+
+```bash
+# 下载并安装Miniconda
+wget https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh
+bash Miniconda3-latest-Linux-x86_64.sh
+
+# 重启终端或执行
+source ~/.bashrc
+```
+
+### 步骤3: 创建Python环境
+
+```bash
+# 创建专用环境
+conda create -n vision python=3.8 -y
+conda activate vision
+
+# 安装依赖包
+pip install -r requirements.txt
+```
+
+### 步骤4: 硬件连接
+
+1. **机械臂连接**：
+   ```bash
+   # 确保机械臂在同一网络中
+   ping <机械臂IP地址>
+   ```
+
+2. **相机连接**：
+   ```bash
+   # 测试RealSense相机
+   python -c "import pyrealsense2 as rs; print('相机连接成功')"
+   ```
+
+### 步骤5: 系统验证
+
+```bash
+# 运行完整测试
+python test_system.py --all
+
+# 测试相机
+python test_system.py --camera
+
+# 测试YOLO模型
+python test_system.py --yolo
+```
+
+## 🎯 使用说明
+
+### 基本使用流程
+
+#### 1. 启动系统
+```bash
+# 激活环境
+conda activate vision
+
+# 启动主程序
+python robot_visual_servoing_integrated.py
+```
+
+#### 2. 选择控制模式
+
+程序启动后，您将看到以下选项：
+
+```
+=== 机器人视觉伺服系统 ===
+控制方法:
+1. PBVS - 基于位置的视觉伺服
+2. IBVS - 基于图像的视觉伺服
+
+请选择控制方法 (1-2):
+```
+
+- **选择1 (PBVS)**: 适用于需要精确3D位置控制的任务
+- **选择2 (IBVS)**: 适用于图像空间的跟踪和定位任务
+
+#### 3. 配置机器人连接
+
+```
+机器人IP地址 (默认: localhost): 192.168.1.100
+机器人端口 (默认: 8899): 8899
+```
+
+#### 4. 系统运行
+
+系统启动后将显示：
+- 实时相机画面
+- 目标检测结果
+- 机械臂状态信息
+- 控制误差数值
+
+### 高级使用
+
+#### 相机标定
+```bash
+# 首次使用建议进行相机标定
+python camera_calibration.py
+
+# 按照提示使用棋盘格进行标定
+# 标定结果将保存到 camera_calibration.json
+```
+
+#### YOLO模型训练
+```bash
+# 使用自定义数据集训练YOLO模型
+python yolo_train.py
+
+# 训练结果保存在 yolo_train/weights/ 目录
+```
+
+#### 目标检测测试
+```bash
+# 测试YOLO检测效果
+python yolo_detect.py
+```
 
 ## 系统概述
 
@@ -81,7 +263,7 @@ which python      # 应该显示conda环境中的Python路径
 - 与系统Python和ROS2 Python完全隔离
 - 每个环境有独立的包管理
 
-## 代码文件说明
+## 📁 代码文件说明
 
 ### 核心驱动程序
 
@@ -287,7 +469,7 @@ python robot_visual_servoing_integrated.py
 - **'e'**: 紧急停止
 - **'r'**: (IBVS模式) 重新设置期望特征
 
-## 视觉伺服方法
+## 🧠 视觉伺服方法
 
 ### PBVS (基于位置的视觉伺服)
 
@@ -387,7 +569,7 @@ robot_visual_servoing_integrated.py (主驱动程序)
     └── advanced_visual_servoing.py (高级功能)
 ```
 
-## 参数配置
+## ⚙️ 参数配置
 
 ### 控制参数
 ```python
@@ -532,9 +714,31 @@ aggressive_params = {
 4. 监控系统稳定性
 ```
 
-## 故障排除
+## 🛠️ 故障排除
 
-### 常见问题及解决方案
+### 🔍 常见问题及解决方案
+
+> 💡 **提示**: 遇到问题时，首先运行 `python test_system.py --all` 进行系统诊断
+
+### ❓ 快速问题检查清单
+
+在报告问题前，请检查以下项目：
+
+```bash
+# 1. 检查环境激活
+conda info --envs
+echo $CONDA_DEFAULT_ENV  # 应该显示 "vision"
+
+# 2. 检查硬件连接
+python -c "import pyrealsense2 as rs; print('相机正常')"  # 测试相机
+ping <机械臂IP>  # 测试机械臂网络连接
+
+# 3. 检查依赖包
+python -c "import cv2, numpy, torch; print('依赖包正常')"
+
+# 4. 检查YOLO模型
+ls -la yolo_train/weights/best.pt  # 检查模型文件是否存在
+```
 
 #### 1. 机器人连接问题
 **问题**: 无法连接到机器人
@@ -634,7 +838,7 @@ which python
 5. 整体系统集成
 ```
 
-## API参考
+## 📚 API参考
 
 ### 主类: RobotVisualServoing
 
@@ -679,7 +883,7 @@ def cleanup(self):
     """清理系统资源"""
 ```
 
-## 扩展开发
+## 🔬 扩展开发
 
 ### 1. 添加新的视觉伺服方法
 
@@ -735,27 +939,76 @@ class ROSVisualServoing(RobotVisualServoing):
 1. 使用IBVS保持目标在图像中心
 2. 维持固定的观察距离和角度
 
-## 参考文献
+## 🎯 典型使用场景
+
+### 场景1: 物体抓取
+```python
+# 1. 启动PBVS模式
+# 2. 检测目标物体
+# 3. 机械臂移动到目标上方
+# 4. 执行抓取动作
+```
+
+### 场景2: 质量检测
+```python
+# 1. 使用IBVS保持固定视角
+# 2. 拍摄高质量图像
+# 3. 进行缺陷检测
+```
+
+### 场景3: 装配作业
+```python
+# 1. PBVS精确定位
+# 2. 零件对齐
+# 3. 装配操作
+```
+
+## 📞 技术支持
+
+### 问题反馈
+- **GitHub Issues**: [提交问题](https://github.com/als-ichkann/vision/issues)
+- **功能请求**: 通过GitHub Issues提交
+
+### 系统要求确认
+- 确保硬件满足最低配置要求
+- 网络连接稳定
+- 所有依赖包正确安装
+
+## 📖 参考文献
 
 1. Chaumette, F., & Hutchinson, S. (2006). Visual servo control. IEEE Robotics & Automation Magazine.
 2. Corke, P. (2017). Robotics, vision and control: fundamental algorithms In MATLAB.
 3. Marchand, E., Spindler, F., & Chaumette, F. (2005). ViSP for visual servoing: a generic software platform.
 
-## 许可证和贡献
+## 📄 许可证和贡献
 
 ### 许可证
 本项目基于现有的robotcontrol.py接口开发，请遵循相应的许可证要求。
 
-### 贡献指南
-欢迎提交问题报告和功能请求。在贡献代码前，请确保：
+### 🤝 贡献指南
+欢迎提交问题报告和功能请求！在贡献代码前，请确保：
 
-1. 代码符合PEP 8规范
-2. 添加适当的注释和文档
-3. 通过所有测试用例
-4. 提供使用示例
+1. ✅ 代码符合PEP 8规范
+2. ✅ 添加适当的注释和文档
+3. ✅ 通过所有测试用例
+4. ✅ 提供使用示例
+
+### 🔄 版本更新
+- 查看 [Releases](https://github.com/als-ichkann/vision/releases) 获取最新版本
+- 定期更新依赖包以获得最佳性能
 
 ---
 
-**安全提醒**: 使用本系统前请确保充分了解机器人安全操作规程，并在安全的环境中进行测试。
+## ⚠️ 重要提醒
 
-**环境提醒**: 每次运行项目前，请确保已激活conda环境 `vision`。
+**🔒 安全第一**: 使用本系统前请确保充分了解机器人安全操作规程，并在安全的环境中进行测试。
+
+**🐍 环境管理**: 每次运行项目前，请确保已激活conda环境：
+```bash
+conda activate vision
+```
+
+**📧 联系方式**: 如有技术问题，请通过GitHub Issues联系我们。
+
+---
+*最后更新: 2024年*
