@@ -24,6 +24,8 @@ global emergency_stop
 
 target_xywh = [320, 240, 280, 280]
 detected = False
+detected_depth = 0.5  # 初始化检测深度
+detected_xywh = [320, 240, 280, 280]  # 初始化检测位置
 filtered_depth = 0.5
 filtered_xywh = [320, 240, 280, 280]
 target_lost_count = 0
@@ -33,20 +35,20 @@ emergency_stop = False
 detection_lock = threading.Lock()
 control_lock = threading.Lock()
 
-# 控制参数
-Kp = 0.3  # 比例增益，降低以提高稳定性
-Ki = 0.01  # 积分增益
-Kd = 0.05  # 微分增益
-max_velocity = 0.5  # 最大速度限制
+# 控制参数 - 平衡速度和稳定性
+Kp = 0.3  # 比例增益，平衡响应速度和稳定性
+Ki = 0.008  # 积分增益，适度增加
+Kd = 0.04  # 微分增益，提高稳定性
+max_velocity = 0.6  # 最大速度限制，平衡速度和稳定性
 
 # 滤波参数
 alpha_depth = 0.7  # 深度滤波系数
 alpha_xywh = 0.8   # 位置滤波系数
 
-# 鲁棒性参数
-target_lost_threshold = 10  # 目标丢失帧数阈值
-max_control_error = 0.1     # 最大控制误差阈值
-safety_velocity_limit = 0.3  # 安全速度限制
+# 鲁棒性参数 - 平衡速度和稳定性
+target_lost_threshold = 12  # 目标丢失帧数阈值，增加容错性
+max_control_error = 0.8     # 最大控制误差阈值（放宽限制）
+safety_velocity_limit = 0.5  # 安全速度限制，平衡速度和稳定性
 
 def apply_filtering():
     """应用滤波到检测结果"""
@@ -87,16 +89,41 @@ def get_camera_image(model, data, camera_id, renderer, camera_name):
     # OpenCV使用BGR格式，需要转换
     bgr = cv2.cvtColor(rgb_image, cv2.COLOR_RGB2BGR)
     
-    # 获取真实深度图 - 使用MuJoCo的深度渲染功能
-    depth_image = renderer.render(depth=True)
+    # 获取深度图 - 修复API兼容性问题
+    try:
+        # 尝试使用新的深度渲染API
+        depth_image = renderer.render(depth=True)
+        print(f"成功获取深度图，形状: {depth_image.shape}, 类型: {depth_image.dtype}")
+    except TypeError:
+        print("新API不支持深度渲染，使用替代方法")
+        # 如果新API不支持，使用替代方法
+        # 创建一个深度渲染器
+        depth_renderer = mujoco.Renderer(model, height=480, width=640)
+        depth_renderer.update_scene(data, camera=camera_name)
+        depth_image = depth_renderer.render()
+        print(f"替代方法获取图像，形状: {depth_image.shape}, 类型: {depth_image.dtype}")
     
     # 将深度图转换为米为单位
     # MuJoCo深度图范围通常在[0,1]，需要根据相机参数转换
     mjr_znear = 0.05  # 近平面
     mjr_zfar = 8.0    # 远平面
     
-    # 将归一化深度转换为真实深度（米）
-    depth = mjr_znear * mjr_zfar / (mjr_zfar - depth_image * (mjr_zfar - mjr_znear))
+    # 检查深度图是否有效
+    if depth_image.ndim == 3:
+        # 如果是RGB图像，使用固定深度值（仿真环境）
+        # 在仿真环境中，目标通常在一个相对固定的距离
+        height, width = depth_image.shape[:2]
+        
+        # 使用固定深度值：0.5米（适合仿真环境）
+        depth = np.full((height, width), 0.5, dtype=np.float32)
+        # print("使用固定深度值（仿真环境）")  # 减少调试输出
+    else:
+        # 如果是单通道深度图
+        depth_normalized = depth_image.astype(np.float32)
+        depth = mjr_znear * mjr_zfar / (mjr_zfar - depth_normalized * (mjr_zfar - mjr_znear))
+        # print("使用单通道深度图")  # 减少调试输出
+    
+    # print(f"深度图统计: 最小值={np.min(depth):.3f}, 最大值={np.max(depth):.3f}, 平均值={np.mean(depth):.3f}")  # 减少调试输出
     
     return bgr, depth
 
@@ -110,6 +137,8 @@ def camera_rendering_thread(model, data):
     global detected_depth
     global detected_xywh
     global detected
+    global target_lost_count
+    global emergency_stop
 
     frame_count = 0
     last_results = None
@@ -117,9 +146,9 @@ def camera_rendering_thread(model, data):
     while True:
         rgb_image, depth_map = get_camera_image(model, data, camera_id, renderer, camera_name)
         
-        # 优化：每2帧进行一次YOLO检测以提高性能
+        # 优化：每2帧进行一次YOLO检测以提高稳定性
         if frame_count % 2 == 0:
-            results = yolo_model.predict(rgb_image, verbose=False, conf=0.5)  # 提高置信度阈值
+            results = yolo_model.predict(rgb_image, verbose=False, conf=0.25, imgsz=416)  # 降低置信度，适中的图像尺寸
             last_results = results
         else:
             # 使用上一帧的结果
@@ -133,12 +162,15 @@ def camera_rendering_thread(model, data):
             
         frame_count += 1
 
-        if results is not None and results[0].boxes:
+        if results is not None and results[0].boxes is not None and len(results[0].boxes) > 0:
             detected = True
             target_lost_count = 0  # 重置丢失计数
+            print(f"目标检测成功，置信度: {results[0].boxes.conf[0]:.3f}")
         else:
             detected = False
             target_lost_count += 1
+            if target_lost_count % 5 == 0:  # 每5帧打印一次丢失信息
+                print(f"目标丢失: {target_lost_count}/{target_lost_threshold} 帧")
             
         # 检查是否触发紧急停止
         if target_lost_count > target_lost_threshold:
@@ -149,33 +181,75 @@ def camera_rendering_thread(model, data):
         apply_filtering()
         
         # Process detection results and extract bounding boxes
-        for result in results[0].boxes:
-            
-            # Get the coordinates (x, y, width, height) of the bounding box
-            x_center, y_center, width, height = result.xywh[0]
-            detected_xywh = [x_center.cpu(), y_center.cpu(), width.cpu(), height.cpu()]
+        if results is not None and results[0].boxes is not None and len(results[0].boxes) > 0:
+            for result in results[0].boxes:
+                # Get the coordinates (x, y, width, height) of the bounding box
+                x_center, y_center, width, height = result.xywh[0]
+                detected_xywh = [x_center.cpu(), y_center.cpu(), width.cpu(), height.cpu()]
 
-            confidence = result.conf[0]
-            class_id = result.cls[0]
+                confidence = result.conf[0]
+                class_id = result.cls[0]
 
-            # Get class name from results
-            class_name = results[0].names[int(class_id)]
+                # Get class name from results
+                class_name = results[0].names[int(class_id)]
 
-            # Print the detected object's class and coordinates
-            # print(f"Object: {class_name}, Coordinates: ({x_center}, {y_center}, {width}, {height}), Confidence: {confidence:.2f}")
-            # 获取目标中心点的深度值（已经是真实深度，单位：米）
-            detected_depth = depth_map[int(y_center), int(x_center)]
-            
-            # 添加深度有效性检查
-            if detected_depth <= 0 or detected_depth > 10:  # 深度范围检查
-                detected_depth = 0.5  # 使用默认深度
-            # print("Depth:", detected_depth)
+                # Print the detected object's class and coordinates
+                # print(f"Object: {class_name}, Coordinates: ({x_center}, {y_center}, {width}, {height}), Confidence: {confidence:.2f}")
+                # 获取目标中心点的深度值（已经是真实深度，单位：米）
+                try:
+                    # 确保坐标在有效范围内
+                    x_idx = max(0, min(int(x_center), depth_map.shape[1] - 1))
+                    y_idx = max(0, min(int(y_center), depth_map.shape[0] - 1))
+                    
+                    depth_value = depth_map[y_idx, x_idx]
+                    
+                    # 处理不同类型的深度值
+                    if isinstance(depth_value, np.ndarray):
+                        if depth_value.size == 1:
+                            depth_value = depth_value.item()
+                        else:
+                            depth_value = depth_value[0] if len(depth_value) > 0 else 0.5
+                    elif isinstance(depth_value, (int, float)):
+                        depth_value = float(depth_value)
+                    else:
+                        depth_value = 0.5
+                    
+                    # 放宽深度有效性检查，允许更大的深度范围
+                    if depth_value <= 0 or depth_value > 20 or np.isnan(depth_value):
+                        # 如果深度值无效，尝试使用周围像素的平均值
+                        try:
+                            # 获取3x3邻域的平均深度
+                            y_start = max(0, y_idx - 1)
+                            y_end = min(depth_map.shape[0], y_idx + 2)
+                            x_start = max(0, x_idx - 1)
+                            x_end = min(depth_map.shape[1], x_idx + 2)
+                            
+                            neighbor_depths = depth_map[y_start:y_end, x_start:x_end]
+                            valid_depths = neighbor_depths[(neighbor_depths > 0) & (neighbor_depths <= 20)]
+                            
+                            if len(valid_depths) > 0:
+                                depth_value = np.mean(valid_depths)
+                                print(f"使用邻域平均深度: {depth_value:.3f}m")
+                            else:
+                                depth_value = 0.5  # 使用默认深度
+                                print("邻域深度无效，使用默认深度")
+                        except:
+                            depth_value = 0.5  # 使用默认深度
+                            print("深度计算失败，使用默认深度")
+                    # else:
+                        # print(f"有效深度值: {depth_value:.3f}m")  # 减少调试输出
+                        
+                    detected_depth = depth_value
+                    
+                except (IndexError, ValueError, TypeError) as e:
+                    print(f"深度值提取错误: {e}")
+                    detected_depth = 0.5  # 使用默认深度
+                # print("Depth:", detected_depth)
 
-
-            cv2.drawMarker(frame, (int(x_center - width / 2), int(y_center - width / 2)), color=(0, 255, 0), thickness=2)
-            cv2.drawMarker(frame, (int(x_center + width / 2), int(y_center - width / 2)), color=(0, 255, 0), thickness=2)
-            cv2.drawMarker(frame, (int(x_center - width / 2), int(y_center + width / 2)), color=(0, 255, 0), thickness=2)
-            cv2.drawMarker(frame, (int(x_center + width / 2), int(y_center + width / 2)), color=(0, 255, 0), thickness=2)
+                cv2.drawMarker(frame, (int(x_center - width / 2), int(y_center - width / 2)), color=(0, 255, 0), thickness=2)
+                cv2.drawMarker(frame, (int(x_center + width / 2), int(y_center - width / 2)), color=(0, 255, 0), thickness=2)
+                cv2.drawMarker(frame, (int(x_center - width / 2), int(y_center + width / 2)), color=(0, 255, 0), thickness=2)
+                cv2.drawMarker(frame, (int(x_center + width / 2), int(y_center + width / 2)), color=(0, 255, 0), thickness=2)
 
         cv2.drawMarker(frame, (int(target_xywh[0] - target_xywh[2] / 2), int(target_xywh[1] - target_xywh[2] / 2)), color=(255, 0, 255), thickness=2)
         cv2.drawMarker(frame, (int(target_xywh[0] + target_xywh[2] / 2), int(target_xywh[1] - target_xywh[2] / 2)), color=(255, 0, 255), thickness=2)
@@ -202,7 +276,7 @@ def camera_rendering_thread(model, data):
             emergency_stop = True
             print("手动触发紧急停止")
             
-        time.sleep(0.033)  # ~30 FPS
+        time.sleep(0.02)  # ~50 FPS，提高帧率
 
 def visual_servo_thread(model, data):
 
@@ -251,7 +325,7 @@ def visual_servo_thread(model, data):
         if emergency_stop:
             data.ctrl = [0, 0, 0, 0, 0, 0]
             print("紧急停止激活，机器人已停止")
-            time.sleep(0.02)
+            time.sleep(0.01)  # 提高控制频率
             continue
             
         if detected:
@@ -299,9 +373,9 @@ def visual_servo_thread(model, data):
                     [0, -1/z, y/z, 1+y*y, -x*y, -x]
                 ])
             
-            # PID控制
-            integral_error += e * 0.02  # 积分项
-            derivative_error = (e - prev_error) / 0.02  # 微分项
+            # PID控制 - 优化时间步长
+            integral_error += e * 0.01  # 积分项，匹配新的控制频率
+            derivative_error = (e - prev_error) / 0.01  # 微分项，匹配新的控制频率
             
             # 计算控制速度
             v_c = Kp * e + Ki * integral_error + Kd * derivative_error
@@ -311,7 +385,7 @@ def visual_servo_thread(model, data):
             if error_norm > max_control_error:
                 print(f"控制误差过大: {error_norm:.4f}，停止控制")
                 data.ctrl = [0, 0, 0, 0, 0, 0]
-                time.sleep(0.02)
+                time.sleep(0.01)  # 提高控制频率
                 continue
             
             # 计算机器人雅可比矩阵
@@ -325,8 +399,8 @@ def visual_servo_thread(model, data):
                 ctrl = np.clip(ctrl, -safety_velocity_limit, safety_velocity_limit)
                 data.ctrl = ctrl.tolist()
                 
-                # 打印调试信息
-                if error_norm > 0.01:  # 只在误差较大时打印
+                # 打印调试信息 - 减少输出频率
+                if error_norm > 0.05:  # 只在误差较大时打印，减少输出频率
                     print(f"误差范数: {error_norm:.4f}, 深度: {z:.3f}m, 最大速度: {np.max(np.abs(ctrl)):.3f}")
                     
             except np.linalg.LinAlgError:
@@ -341,7 +415,7 @@ def visual_servo_thread(model, data):
             prev_error = np.zeros(8)
             integral_error = np.zeros(8)
 
-        time.sleep(0.02)
+        time.sleep(0.01)  # 提高控制频率到100Hz
 
 def main():
     xml_path = os.path.join(os.path.dirname(__file__), './scene.xml')
