@@ -6,15 +6,61 @@ import mujoco.viewer
 import cv2
 import threading
 from ultralytics import YOLO
+import queue
 
+# 优化YOLO模型加载
 yolo_model = YOLO('yolo_train/weights/best.pt')
+# 预热模型以提高推理速度
+dummy_image = np.zeros((480, 640, 3), dtype=np.uint8)
+_ = yolo_model(dummy_image, verbose=False)
 
 global detected
 global detected_depth
 global detected_xywh
+global filtered_depth
+global filtered_xywh
+global target_lost_count
+global emergency_stop
 
 target_xywh = [320, 240, 280, 280]
 detected = False
+filtered_depth = 0.5
+filtered_xywh = [320, 240, 280, 280]
+target_lost_count = 0
+emergency_stop = False
+
+# 线程同步
+detection_lock = threading.Lock()
+control_lock = threading.Lock()
+
+# 控制参数
+Kp = 0.3  # 比例增益，降低以提高稳定性
+Ki = 0.01  # 积分增益
+Kd = 0.05  # 微分增益
+max_velocity = 0.5  # 最大速度限制
+
+# 滤波参数
+alpha_depth = 0.7  # 深度滤波系数
+alpha_xywh = 0.8   # 位置滤波系数
+
+# 鲁棒性参数
+target_lost_threshold = 10  # 目标丢失帧数阈值
+max_control_error = 0.1     # 最大控制误差阈值
+safety_velocity_limit = 0.3  # 安全速度限制
+
+def apply_filtering():
+    """应用滤波到检测结果"""
+    global filtered_depth, filtered_xywh, detected_depth, detected_xywh
+    
+    with detection_lock:
+        if detected:
+            # 深度滤波
+            filtered_depth = alpha_depth * filtered_depth + (1 - alpha_depth) * detected_depth
+            
+            # 位置滤波
+            for i in range(4):
+                filtered_xywh[i] = alpha_xywh * filtered_xywh[i] + (1 - alpha_xywh) * detected_xywh[i]
+
 # init_camera函数已移除，新渲染器API不需要GLFW窗口
 
 def setup_camera(model, data, camera_name, width=640, height=480):
@@ -41,8 +87,16 @@ def get_camera_image(model, data, camera_id, renderer, camera_name):
     # OpenCV使用BGR格式，需要转换
     bgr = cv2.cvtColor(rgb_image, cv2.COLOR_RGB2BGR)
     
-    # 创建虚拟深度图（新渲染器API不直接提供深度）
-    depth = np.ones((rgb_image.shape[0], rgb_image.shape[1]), dtype=np.float32) * 0.5
+    # 获取真实深度图 - 使用MuJoCo的深度渲染功能
+    depth_image = renderer.render(depth=True)
+    
+    # 将深度图转换为米为单位
+    # MuJoCo深度图范围通常在[0,1]，需要根据相机参数转换
+    mjr_znear = 0.05  # 近平面
+    mjr_zfar = 8.0    # 远平面
+    
+    # 将归一化深度转换为真实深度（米）
+    depth = mjr_znear * mjr_zfar / (mjr_zfar - depth_image * (mjr_zfar - mjr_znear))
     
     return bgr, depth
 
@@ -57,17 +111,43 @@ def camera_rendering_thread(model, data):
     global detected_xywh
     global detected
 
+    frame_count = 0
+    last_results = None
+    
     while True:
         rgb_image, depth_map = get_camera_image(model, data, camera_id, renderer, camera_name)
-        results = yolo_model.predict(rgb_image, verbose=False)
+        
+        # 优化：每2帧进行一次YOLO检测以提高性能
+        if frame_count % 2 == 0:
+            results = yolo_model.predict(rgb_image, verbose=False, conf=0.5)  # 提高置信度阈值
+            last_results = results
+        else:
+            # 使用上一帧的结果
+            results = last_results
+            
         # Draw bounding boxes and class labels on the frame
-        frame = results[0].plot()
+        if results is not None:
+            frame = results[0].plot()
+        else:
+            frame = rgb_image.copy()
+            
+        frame_count += 1
 
-        if results[0].boxes:
+        if results is not None and results[0].boxes:
             detected = True
+            target_lost_count = 0  # 重置丢失计数
         else:
             detected = False
-        # print(detected)
+            target_lost_count += 1
+            
+        # 检查是否触发紧急停止
+        if target_lost_count > target_lost_threshold:
+            emergency_stop = True
+            print(f"目标丢失超过{target_lost_threshold}帧，触发紧急停止")
+        
+        # 应用滤波
+        apply_filtering()
+        
         # Process detection results and extract bounding boxes
         for result in results[0].boxes:
             
@@ -83,7 +163,12 @@ def camera_rendering_thread(model, data):
 
             # Print the detected object's class and coordinates
             # print(f"Object: {class_name}, Coordinates: ({x_center}, {y_center}, {width}, {height}), Confidence: {confidence:.2f}")
-            detected_depth = mjr_znear * mjr_zfar / (mjr_zfar - depth_map[int(y_center), int(x_center)]  * (mjr_zfar - mjr_znear))
+            # 获取目标中心点的深度值（已经是真实深度，单位：米）
+            detected_depth = depth_map[int(y_center), int(x_center)]
+            
+            # 添加深度有效性检查
+            if detected_depth <= 0 or detected_depth > 10:  # 深度范围检查
+                detected_depth = 0.5  # 使用默认深度
             # print("Depth:", detected_depth)
 
 
@@ -96,10 +181,27 @@ def camera_rendering_thread(model, data):
         cv2.drawMarker(frame, (int(target_xywh[0] + target_xywh[2] / 2), int(target_xywh[1] - target_xywh[2] / 2)), color=(255, 0, 255), thickness=2)
         cv2.drawMarker(frame, (int(target_xywh[0] - target_xywh[2] / 2), int(target_xywh[1] + target_xywh[2] / 2)), color=(255, 0, 255), thickness=2)
         cv2.drawMarker(frame, (int(target_xywh[0] + target_xywh[2] / 2), int(target_xywh[1] + target_xywh[2] / 2)), color=(255, 0, 255), thickness=2)
+        # 显示状态信息
+        status_text = f"Target Lost: {target_lost_count}/{target_lost_threshold}"
+        if emergency_stop:
+            status_text += " - EMERGENCY STOP"
+        cv2.putText(frame, status_text, (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
+        
         cv2.imshow('MuJoCo Camera', frame)
         
-        if cv2.waitKey(1) & 0xFF == ord('q'):
+        key = cv2.waitKey(1) & 0xFF
+        if key == ord('q'):
             break
+        elif key == ord('r') and emergency_stop:
+            # 重置紧急停止状态
+            emergency_stop = False
+            target_lost_count = 0
+            print("紧急停止已重置")
+        elif key == ord('e'):
+            # 手动触发紧急停止
+            emergency_stop = True
+            print("手动触发紧急停止")
+            
         time.sleep(0.033)  # ~30 FPS
 
 def visual_servo_thread(model, data):
@@ -140,47 +242,104 @@ def visual_servo_thread(model, data):
         j_pinv = jacobian.T @ np.linalg.inv(jjt + damping_matrix)
         return j_pinv
     
+    # PID控制器状态
+    prev_error = np.zeros(8)
+    integral_error = np.zeros(8)
+    
     while True:
-        #J_q = calc_jacobian(model, data)
-        #data.ctrl = damped_pseudo_inverse(J_q) @ np.array([-0.03, 0.03, -0.03, 0, 0, 0])
-        if detected:
-
-            z = detected_depth
-            f = 400 # focal length in Pixels
-
-            # up left corner point 
-            x, y = (detected_xywh[0] - detected_xywh[2] / 2 - 320) / f, (240 - (detected_xywh[1] - detected_xywh[2] / 2)) / f
-            x_d, y_d = (target_xywh[0] - target_xywh[2] / 2 - 320) / f, (240 - (target_xywh[1] - target_xywh[2] / 2)) / f
-            e1 = [x - x_d, y - y_d]
-            L_e1 = np.array([[-1 / z, 0, x / z, x * y, -(1 + x * x), y], [0, -1 / z, y / z, 1 + y * y, -x * y, -x]])
-            # up right corner point 
-            x, y = (detected_xywh[0] + detected_xywh[2] / 2 - 320) / f, (240 - (detected_xywh[1] - detected_xywh[2] / 2)) / f
-            x_d, y_d = (target_xywh[0] + target_xywh[2] / 2 - 320) / f, (240 - (target_xywh[1] - target_xywh[2] / 2)) / f
-            e2 = [x - x_d, y - y_d]
-            L_e2 = np.array([[-1 / z, 0, x / z, x * y, -(1 + x * x), y], [0, -1 / z, y / z, 1 + y * y, -x * y, -x]])
-            # bottom left corner point 
-            x, y = (detected_xywh[0] - detected_xywh[2] / 2 - 320) / f, (240 - (detected_xywh[1] + detected_xywh[2] / 2)) / f
-            x_d, y_d = (target_xywh[0] - target_xywh[2] / 2 - 320) / f, (240 - (target_xywh[1] + target_xywh[2] / 2)) / f
-            e3 = [x - x_d, y - y_d]
-            L_e3 = np.array([[-1 / z, 0, x / z, x * y, -(1 + x * x), y], [0, -1 / z, y / z, 1 + y * y, -x * y, -x]])
-            # bottom left corner point 
-            x, y = (detected_xywh[0] + detected_xywh[2] / 2 - 320) / f, (240 - (detected_xywh[1] + detected_xywh[2] / 2)) / f
-            x_d, y_d = (target_xywh[0] + target_xywh[2] / 2 - 320) / f, (240 - (target_xywh[1] + target_xywh[2] / 2)) / f
-            e4 = [x - x_d, y - y_d]
-            L_e4 = np.array([[-1 / z, 0, x / z, x * y, -(1 + x * x), y], [0, -1 / z, y / z, 1 + y * y, -x * y, -x]])
-
-            e = np.hstack((e1, e2, e3, e4))
-            L_e = np.vstack((L_e1, L_e2, L_e3, L_e4))
-            #print("error:", L_e)
-            #print("v_c1:", damped_pseudo_inverse(L_e1) @ e1)
+        # 检查紧急停止状态
+        if emergency_stop:
+            data.ctrl = [0, 0, 0, 0, 0, 0]
+            print("紧急停止激活，机器人已停止")
+            time.sleep(0.02)
+            continue
             
+        if detected:
+            # 使用滤波后的数据
+            z = filtered_depth
+            
+            # 更准确的相机内参（基于RealSense D435i典型参数）
+            fx = 615.0  # 焦距x
+            fy = 615.0  # 焦距y
+            cx = 320.0  # 主点x
+            cy = 240.0  # 主点y
+            
+            # 计算四个角点的误差
+            corners = []
+            target_corners = []
+            
+            # 四个角点：左上、右上、左下、右下
+            corner_offsets = [(-1, -1), (1, -1), (-1, 1), (1, 1)]
+            
+            for dx, dy in corner_offsets:
+                # 当前检测的角点（像素坐标转归一化坐标）
+                x = (filtered_xywh[0] + dx * filtered_xywh[2] / 2 - cx) / fx
+                y = (filtered_xywh[1] + dy * filtered_xywh[3] / 2 - cy) / fy
+                corners.extend([x, y])
+                
+                # 目标角点（像素坐标转归一化坐标）
+                x_d = (target_xywh[0] + dx * target_xywh[2] / 2 - cx) / fx
+                y_d = (target_xywh[1] + dy * target_xywh[3] / 2 - cy) / fy
+                target_corners.extend([x_d, y_d])
+            
+            # 计算误差
+            e = np.array(corners) - np.array(target_corners)
+            
+            # 计算图像雅可比矩阵（使用中心点）
+            x_center = (filtered_xywh[0] - cx) / fx
+            y_center = (filtered_xywh[1] - cy) / fy
+            
+            # 构建图像雅可比矩阵
+            L_e = np.zeros((8, 6))
+            for i in range(4):
+                idx = i * 2
+                x, y = corners[idx], corners[idx + 1]
+                L_e[idx:idx+2, :] = np.array([
+                    [-1/z, 0, x/z, x*y, -(1+x*x), y],
+                    [0, -1/z, y/z, 1+y*y, -x*y, -x]
+                ])
+            
+            # PID控制
+            integral_error += e * 0.02  # 积分项
+            derivative_error = (e - prev_error) / 0.02  # 微分项
+            
+            # 计算控制速度
+            v_c = Kp * e + Ki * integral_error + Kd * derivative_error
+            
+            # 检查控制误差是否过大
+            error_norm = np.linalg.norm(e)
+            if error_norm > max_control_error:
+                print(f"控制误差过大: {error_norm:.4f}，停止控制")
+                data.ctrl = [0, 0, 0, 0, 0, 0]
+                time.sleep(0.02)
+                continue
+            
+            # 计算机器人雅可比矩阵
             J_q = calc_jacobian(model, data)
-            ctrl = -0.6 * damped_pseudo_inverse(J_q) @ damped_pseudo_inverse(L_e) @ e
-            ctrl = np.clip(ctrl, -1, 1)
-            data.ctrl = ctrl.tolist()
-            #print("ctrl:", ctrl)
+            
+            # 计算关节速度
+            try:
+                ctrl = -damped_pseudo_inverse(J_q) @ damped_pseudo_inverse(L_e) @ v_c
+                
+                # 应用安全速度限制
+                ctrl = np.clip(ctrl, -safety_velocity_limit, safety_velocity_limit)
+                data.ctrl = ctrl.tolist()
+                
+                # 打印调试信息
+                if error_norm > 0.01:  # 只在误差较大时打印
+                    print(f"误差范数: {error_norm:.4f}, 深度: {z:.3f}m, 最大速度: {np.max(np.abs(ctrl)):.3f}")
+                    
+            except np.linalg.LinAlgError:
+                print("矩阵求逆失败，停止控制")
+                data.ctrl = [0, 0, 0, 0, 0, 0]
+            
+            prev_error = e.copy()
+            
         else:
             data.ctrl = [0, 0, 0, 0, 0, 0]
+            # 重置PID状态
+            prev_error = np.zeros(8)
+            integral_error = np.zeros(8)
 
         time.sleep(0.02)
 
