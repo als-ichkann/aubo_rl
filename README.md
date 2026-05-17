@@ -116,7 +116,51 @@ configs/diffusion_policy/aubo_ego_rgb_delta_pose.yaml
 ./scripts/train_diffusion_policy_aubo.sh training.device=cuda:0 training.num_epochs=200
 ```
 
-### 6. 训练前建议
+训练完成后，权重默认保存在 **`train.py` 的工作目录**（脚本会 `cd` 到 `third_party/diffusion_policy`），因此路径为：
+
+```bash
+third_party/diffusion_policy/data/outputs/<YYYY.MM.DD>/<HH.MM.SS>_train_diffusion_unet_image_aubo_ego_rgb_delta_pose_aubo_ego_rgb_delta_pose/checkpoints/
+```
+
+（若在别处改过 Hydra `hydra.run.dir`，则以实际输出目录为准。）
+
+### 6. 仿真闭环推理（MuJoCo）
+
+在仓库根目录加载 `latest.ckpt`（或某个 `epoch=*.ckpt`），在仿真里按与采集一致的节拍执行策略输出的末端位姿增量。
+
+```bash
+conda activate aubo_rl
+python run_dp_policy_sim.py \
+  --checkpoint third_party/diffusion_policy/data/outputs/2026.05.17/15.18.08_train_diffusion_unet_image_aubo_ego_rgb_delta_pose_aubo_ego_rgb_delta_pose/checkpoints/latest.ckpt \
+  --inference-steps 20
+```
+
+```bash
+conda activate aubo_rl
+python run_dp_policy_sim.py \
+  --checkpoint third_party/diffusion_policy/data/outputs/2026.05.17/15.14.17_train_diffusion_unet_image_aubo_ego_rgb_delta_pose_aubo_ego_rgb_delta_pose/checkpoints/latest.ckpt \
+  --inference-steps 20
+```
+
+也可使用相对仓库根目录的短路径（脚本会自动在 `third_party/diffusion_policy/` 下查找）：
+
+```bash
+python run_dp_policy_sim.py \
+  --checkpoint data/outputs/<日期>/<运行目录>/checkpoints/latest.ckpt \
+  --inference-steps 20
+```
+
+操作说明：
+
+- 默认策略关闭；按 **`c`**（MuJoCo 窗口或 OpenCV 预览窗口处于焦点时）打开/关闭闭环策略。
+- **`space`**：将目标位姿重置为当前 FK（与采集脚本一致）。
+- **`q`**：退出。
+- **`--image-size`** 必须与训练 `shape_meta` 一致（默认 96）。
+- 若推理跟不上 `sample-rate`，可降低 **`--inference-steps`**（例如 16）或改用 GPU **`--device cuda:0`**。
+
+可选：在未开策略时用遥控器微调起始姿态：`--joystick`（参数与 `collect_dp_demo.py` 中轴映射一致）。
+
+### 7. 训练前建议
 
 - 至少先采集多条短 episode，确认数据集能被 `inspect_dp_dataset.py` 正常读取。
 - 确认 `action` 不是全 0，否则说明采集时没有实际移动目标位姿。
