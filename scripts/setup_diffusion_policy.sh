@@ -4,7 +4,7 @@ set -euo pipefail
 ENV_NAME="${CONDA_ENV_NAME:-aubo_rl}"
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 DP_DIR="${ROOT_DIR}/third_party/diffusion_policy"
-DP_REPO="${DP_REPO:-https://github.com/real-stanford/diffusion_policy.git}"
+INSTALL_DP_EDITABLE="${INSTALL_DP_EDITABLE:-1}"
 
 echo "[setup] Project root: ${ROOT_DIR}"
 echo "[setup] Target conda env: ${ENV_NAME}"
@@ -21,26 +21,47 @@ echo "[setup] Python: $(python --version)"
 echo "[setup] You may need system packages:"
 echo "        sudo apt install -y libosmesa6-dev libgl1-mesa-glx libglfw3 patchelf"
 
-mkdir -p "${ROOT_DIR}/third_party"
-if [ ! -d "${DP_DIR}/.git" ]; then
-  echo "[setup] Cloning diffusion_policy from ${DP_REPO}"
-  git clone "${DP_REPO}" "${DP_DIR}"
-else
-  echo "[setup] diffusion_policy already exists, pulling latest changes"
-  git -C "${DP_DIR}" pull --ff-only || true
+if [ ! -d "${DP_DIR}" ]; then
+  cat >&2 <<EOF
+[error] diffusion_policy source directory was not found:
+  ${DP_DIR}
+
+This script no longer clones diffusion_policy automatically.
+Please place your manually installed source at the path above, or edit DP_DIR in this script.
+EOF
+  exit 1
 fi
+echo "[setup] Using existing diffusion_policy source: ${DP_DIR}"
 
 echo "[setup] Installing Python dependencies"
-python -m pip install --upgrade pip setuptools wheel
+python -m pip install --upgrade pip wheel
+python -m pip install "setuptools<82"
 python -m pip install \
   "torch" "torchvision" \
   "zarr<3" "numcodecs<0.16" \
   hydra-core omegaconf einops diffusers dill wandb tqdm \
   imageio imageio-ffmpeg av termcolor scikit-image scikit-video pandas \
-  opencv-python h5py robomimic
+  opencv-python h5py robomimic unidiff
 
-echo "[setup] Installing diffusion_policy in editable mode"
-python -m pip install -e "${DP_DIR}"
+if [ "${INSTALL_DP_EDITABLE}" = "1" ]; then
+  echo "[setup] Installing existing diffusion_policy in editable mode"
+  python -m pip install -e "${DP_DIR}"
+else
+  echo "[setup] Skipping editable diffusion_policy install"
+fi
+
+echo "[setup] Ensuring diffusion_policy source is on PYTHONPATH via .pth"
+DP_DIR="${DP_DIR}" python - <<'PY'
+import os
+import site
+from pathlib import Path
+
+dp_dir = Path(os.environ["DP_DIR"]).resolve()
+site_dir = Path(site.getsitepackages()[0])
+pth_path = site_dir / "aubo_diffusion_policy_source.pth"
+pth_path.write_text(str(dp_dir) + "\n", encoding="utf-8")
+print(f"ok: wrote {pth_path} -> {dp_dir}")
+PY
 
 echo "[setup] Verifying imports"
 python - <<'PY'
