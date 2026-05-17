@@ -160,12 +160,12 @@
       <position name="wrist_2_act" joint="wrist_2_joint" ctrlrange="-3.14 3.14" gear="1" kp="1000" kv="200"/>
       <position name="wrist_3_act" joint="wrist_3_joint" ctrlrange="-3.14 3.14" gear="1" kp="10" kv="2"/-->
 
-      <velocity name="shoulder_pan_act" joint="shoulder_pan_joint" ctrlrange="-5 5" gear="1" kv="20000"/>
-      <velocity name="shoulder_lift_act" joint="shoulder_lift_joint" ctrlrange="-5 5" gear="1" kv="15000"/>
-      <velocity name="elbow_act" joint="elbow_joint" ctrlrange="-5 5" gear="1" kv="10000"/>
-      <velocity name="wrist_1_act" joint="wrist_1_joint" ctrlrange="-5 5" gear="1" kv="5000"/>
-      <velocity name="wrist_2_act" joint="wrist_2_joint" ctrlrange="-5 5" gear="1" kv="2000"/>
-      <velocity name="wrist_3_act" joint="wrist_3_joint" ctrlrange="-5 5" gear="1" kv="200"/>
+      <motor name="shoulder_pan_act" joint="shoulder_pan_joint" ctrlrange="-260 260" gear="1"/>
+      <motor name="shoulder_lift_act" joint="shoulder_lift_joint" ctrlrange="-360 360" gear="1"/>
+      <motor name="elbow_act" joint="elbow_joint" ctrlrange="-320 320" gear="1"/>
+      <motor name="wrist_1_act" joint="wrist_1_joint" ctrlrange="-140 140" gear="1"/>
+      <motor name="wrist_2_act" joint="wrist_2_joint" ctrlrange="-110 110" gear="1"/>
+      <motor name="wrist_3_act" joint="wrist_3_joint" ctrlrange="-70 70" gear="1"/>
 
     </actuator>
 </mujoco>

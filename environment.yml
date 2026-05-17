@@ -1,0 +1,15 @@
+name: aubo_rl
+channels:
+  - conda-forge
+dependencies:
+  - python=3.10
+  - pip
+  - numpy>=1.23
+  - scipy>=1.9
+  - matplotlib>=3.6
+  - pillow>=9.0
+  - casadi>=3.6
+  - pinocchio>=3.0
+  - pip:
+      - mujoco>=3.1.0
+      - opencv-python>=4.5.0
