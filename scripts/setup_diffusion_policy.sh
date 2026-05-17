@@ -37,9 +37,25 @@ echo "[setup] Installing Python dependencies"
 python -m pip install --upgrade pip wheel
 python -m pip install "setuptools<82"
 python -m pip install \
-  "torch" "torchvision" \
+  torch==2.3.1 torchvision==0.18.1 \
+  --index-url https://download.pytorch.org/whl/cu121
+echo "[setup] Checking NCCL runtime library"
+if ! python - <<'PY'
+import site
+from pathlib import Path
+
+for site_dir in site.getsitepackages():
+    if list((Path(site_dir) / "nvidia").glob("**/libnccl.so.2")):
+        raise SystemExit(0)
+raise SystemExit(1)
+PY
+then
+  echo "[setup] libnccl.so.2 is missing; reinstalling nvidia-nccl-cu12"
+  python -m pip install --force-reinstall --no-cache-dir nvidia-nccl-cu12==2.20.5
+fi
+python -m pip install \
   "zarr<3" "numcodecs<0.16" \
-  hydra-core omegaconf einops diffusers dill wandb tqdm \
+  hydra-core omegaconf einops diffusers dill wandb tqdm numba \
   imageio imageio-ffmpeg av termcolor scikit-image scikit-video pandas \
   opencv-python h5py robomimic unidiff
 
